@@ -28,6 +28,7 @@ canvas{border:2px solid #555;background:#000;max-width:100%;height:auto}
 <div>Score: <span id="score">0</span></div>
 <div>Lives: <span id="lives">3</span></div>
 <div>Level: <span id="level">1</span></div>
+<div>Time: <span id="timer">3:00</span></div>
 <div>Enemies: <span id="enemies-left">0</span></div>
 </div>
 <div style="position:relative;display:inline-block">
@@ -56,6 +57,7 @@ var scoreEl=document.getElementById("score");
 var livesEl=document.getElementById("lives");
 var levelEl=document.getElementById("level");
 var enemiesLeftEl=document.getElementById("enemies-left");
+var timerEl=document.getElementById("timer");
 var T={EMPTY:0,BRICK:1,STEEL:2,WATER:3,TREES:4,BASE:9};
 
 function genMap(lv){
@@ -171,9 +173,9 @@ class Tank{
     ctx.translate(this.cx,this.cy);
     ctx.rotate(this.dir*Math.PI/2);
     var hw=this.w/2,hh=this.h/2;
-    ctx.fillStyle=this.isPlayer?"#4a4":"#c44";
+    ctx.fillStyle=this.isPlayer?"#4a4":(this.colorOverride||"#c44");
     ctx.fillRect(-hw,-hh,this.w,this.h);
-    ctx.fillStyle=this.isPlayer?"#383":"#a33";
+    ctx.fillStyle=this.isPlayer?"#383":(this.colorOverride?"#a33":"#a33");
     ctx.fillRect(-hw-3,-hh,4,this.h);
     ctx.fillRect(hw-1,-hh,4,this.h);
     ctx.fillStyle=this.isPlayer?"#5c5":"#d55";
@@ -247,6 +249,10 @@ class Enemy extends Tank{
     if(type===1){this.speed+=0.5;this.scoreVal=200;}
     if(type===2){this.speed+=1;this.fr=20;this.scoreVal=300;}
     if(type===3){this.speed+=1.5;this.scoreVal=500;}
+    // Color based on type for visual distinction
+    if(type===1){this.colorOverride="#c4c";}
+    if(type===2){this.colorOverride="#4cc";}
+    if(type===3){this.colorOverride="#cc4";}
   }
   updateAI(m,tanks){
     this.updCd();
@@ -276,6 +282,8 @@ var score=0,lives=3,level=1,enemyCount=0,spawnT=0,spawnI=120;
 var gameRunning=false,paused=false,gameOver=false;
 var keys={};
 var animFrame;
+var levelTimer=0,levelTimeLimit=180; // 3 minutes per level at 60fps
+var timeUp=false;
 
 function initGame(){
   score=0;lives=3;level=1;
@@ -291,6 +299,7 @@ function initLevel(){
   enemyCount=6+level*2;
   spawnT=0;spawnI=120;
   gameRunning=true;paused=false;gameOver=false;
+  levelTimer=0;timeUp=false;
   updateUI();
 }
 
@@ -353,7 +362,10 @@ function update(){
     if(!b.alive)continue;
     var res=b.update(map,[player].concat(enemies));
     if(!b.alive){
-      if(res==="tank"){addP(b.owner.cx,b.owner.cy,"#f80",15);}
+      if(res==="tank"){
+        addP(b.owner.cx,b.owner.cy,"#f80",15);
+        if(b.owner.isPlayer&&b.owner.scoreVal){score+=b.owner.scoreVal;b.owner.scoreVal=0;}
+      }
       if(res==="base"){gameOver=true;addP(b.x,b.y,"#f00",30);showGameOver();}
       if(res==="brick"||res==="steel"){addP(b.x,b.y,res==="brick"?"#a64":"#ccc",5);}
     }
@@ -366,6 +378,15 @@ function update(){
     if(e.alive&&p.alive&&Math.abs(e.x-p.x)<8&&Math.abs(e.y-p.y)<8){
       e.alive=false;p.alive=false;
       addP((e.x+p.x)/2,(e.y+p.y)/2,"#ff0",8);
+    }
+  }
+  // Timer countdown
+  if(gameRunning&&!paused&&!gameOver){
+    levelTimer++;
+    if(levelTimer>=levelTimeLimit){
+      timeUp=true;
+      gameOver=true;
+      showGameOver();
     }
   }
   bullets=bullets.filter(function(b){return b.alive;});
@@ -404,6 +425,12 @@ function updateUI(){
   var aliveCount=0;
   for(var i=0;i<enemies.length;i++)if(enemies[i].alive)aliveCount++;
   enemiesLeftEl.textContent=enemyCount+aliveCount;
+  // Format timer as M:SS
+  var remaining=Math.max(0,levelTimeLimit-levelTimer);
+  var seconds=remaining/60|0;
+  var mins=seconds/60|0;
+  var secs=seconds%60;
+  timerEl.textContent=mins+":"+((secs<10?"0":"")+secs);
 }
 
 function drawMap(){
@@ -504,7 +531,8 @@ function startGame(){
 function showGameOver(){
   overlay.style.display="flex";
   overlay.classList.add("active");
-  overlay.innerHTML="<h1>Game Over</h1><p>Final Score: "+score+"</p><button id=\"restart-btn\">Play Again</button>";
+  var reason=timeUp?"Time's Up!":"Game Over";
+  overlay.innerHTML="<h1>"+reason+"</h1><p>Final Score: "+score+"</p><button id=\"restart-btn\">Play Again</button>";
   document.getElementById("restart-btn").addEventListener("click",function(){
     overlay.style.display="none";
     overlay.innerHTML="";
