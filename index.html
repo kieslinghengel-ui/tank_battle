@@ -204,7 +204,7 @@ function initGame(){score=0;lives=3;level=1;initLevel();}
 
 function initLevel(){
   map=genMap(level);
-  player=new Tank((COLS/2|0-1)*TILE,(ROWS-3)*TILE,DIR.UP,P_SPEED);
+  player=new Tank(((COLS/2|0)-1)*TILE,(ROWS-3)*TILE,DIR.UP,P_SPEED);
   player.isPlayer=true;
   enemies=[];bullets=[];particles=[];
   enemyCount=6+level*2;spawnT=0;spawnI=120;
@@ -267,7 +267,7 @@ function update(){
   if(!player.alive){
     lives--;addP(player.cx,player.cy,"#4a4",20);
     if(lives<=0){gameOver=true;}
-    else{player=new Tank((COLS/2|0-1)*TILE,(ROWS-3)*TILE,DIR.UP,P_SPEED);player.isPlayer=true;player.ft=60;}
+    else{player=new Tank(((COLS/2|0)-1)*TILE,(ROWS-3)*TILE,DIR.UP,P_SPEED);player.isPlayer=true;player.ft=60;}
   }
   for(var i=0;i<particles.length;i++){var p=particles[i];p.x+=p.vx;p.y+=p.vy;p.vx*=0.95;p.vy*=0.95;p.life--;}
   particles=particles.filter(function(p){return p.life>0;});
