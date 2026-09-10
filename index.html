@@ -9,7 +9,7 @@
 body{background:#111;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:Courier New,monospace;color:#fff;overflow:hidden}
 #header{display:flex;gap:40px;margin-bottom:10px;font-size:18px}
 #header span{color:#ff0}
-canvas{border:2px solid #555;background:#000}
+canvas{border:2px solid #555;background:#000;max-width:100%;height:auto}
 #controls{margin-top:12px;font-size:14px;color:#aaa;text-align:center}
 #overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;z-index:10;background:rgba(0,0,0,0.75)}
 #overlay.active{pointer-events:auto}
@@ -204,7 +204,7 @@ function initGame(){score=0;lives=3;level=1;initLevel();}
 
 function initLevel(){
   map=genMap(level);
-  player=new Tank(((COLS/2|0)-1)*TILE,(ROWS-3)*TILE,DIR.UP,P_SPEED);
+  player=new Tank(((COLS/2|0)-1)*TILE,(ROWS-4)*TILE,DIR.UP,P_SPEED);
   player.isPlayer=true;
   enemies=[];bullets=[];particles=[];
   enemyCount=6+level*2;spawnT=0;spawnI=120;
@@ -250,7 +250,7 @@ function update(){
     var res=b.update(map,[player].concat(enemies));
     if(!b.alive){
       if(res==="tank"){addP(b.owner.cx,b.owner.cy,"#f80",15);}
-      if(res==="base"){gameOver=true;addP(b.x,b.y,"#f00",30);}
+      if(res==="base"){gameOver=true;addP(b.x,b.y,"#f00",30);showGameOver();}
       if(res==="brick"||res==="steel"){addP(b.x,b.y,res==="brick"?"#a64":"#ccc",5);}
     }
   }
@@ -266,8 +266,8 @@ function update(){
   enemies=enemies.filter(function(e){return e.alive;});
   if(!player.alive){
     lives--;addP(player.cx,player.cy,"#4a4",20);
-    if(lives<=0){gameOver=true;}
-    else{player=new Tank(((COLS/2|0)-1)*TILE,(ROWS-3)*TILE,DIR.UP,P_SPEED);player.isPlayer=true;player.ft=60;}
+    if(lives<=0){gameOver=true;showGameOver();}
+    else{player=new Tank(((COLS/2|0)-1)*TILE,(ROWS-4)*TILE,DIR.UP,P_SPEED);player.isPlayer=true;player.ft=60;}
   }
   for(var i=0;i<particles.length;i++){var p=particles[i];p.x+=p.vx;p.y+=p.vy;p.vx*=0.95;p.vy*=0.95;p.life--;}
   particles=particles.filter(function(p){return p.life>0;});
@@ -327,8 +327,14 @@ mobBtn("btn-left","ArrowLeft");mobBtn("btn-right","ArrowRight");
 mobBtn("btn-fire","Space");
 
 function startGame(){
-  overlay.classList.remove("active");overlay.innerHTML="";
+  overlay.style.display="none";
   cancelAnimationFrame(animFrame);initGame();gameLoop();
+}
+function showGameOver(){
+  overlay.style.display="flex";
+  overlay.classList.add("active");
+  overlay.innerHTML="<h1>Game Over</h1><p>Final Score: "+score+"</p><button id=\"restart-btn\">Play Again</button>";
+  document.getElementById("restart-btn").addEventListener("click",function(){overlay.style.display="none";overlay.innerHTML="";score=0;lives=3;level=1;initLevel();});
 }
 document.getElementById("start-btn").addEventListener("click",startGame);
 ctx.fillStyle="#000";ctx.fillRect(0,0,W,H);
