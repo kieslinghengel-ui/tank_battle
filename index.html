@@ -282,7 +282,7 @@ var score=0,lives=3,level=1,enemyCount=0,spawnT=0,spawnI=120;
 var gameRunning=false,paused=false,gameOver=false;
 var keys={};
 var animFrame;
-var levelTimer=0,levelTimeLimit=180; // 3 minutes per level at 60fps
+var levelTimer=0,levelTimeLimit=180*60; // 3 minutes per level at 60fps
 var timeUp=false;
 
 function initGame(){
