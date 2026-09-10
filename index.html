@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Tank Battle</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#111;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:Courier New,monospace;color:#fff;overflow:hidden}
+#header{display:flex;gap:40px;margin-bottom:10px;font-size:18px}
+#header span{color:#ff0}
+canvas{border:2px solid #555;background:#000}
+#controls{margin-top:12px;font-size:14px;color:#aaa;text-align:center}
+#overlay{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}
+#overlay.active{pointer-events:auto}
+#overlay h1{font-size:48px;color:#ff0;text-shadow:0 0 20px #f80;margin-bottom:20px}
+#overlay p{font-size:20px;color:#ccc;margin-bottom:10px}
+#overlay button{margin-top:20px;padding:12px 36px;font-size:20px;font-family:Courier New,monospace;background:#ff0;color:#000;border:none;cursor:pointer;pointer-events:auto}
+#overlay button:hover{background:#fa0}
+#mobile-controls{display:none;margin-top:16px;gap:8px}
+#mobile-controls button{width:60px;height:60px;font-size:24px;background:#333;color:#fff;border:2px solid #666;border-radius:8px;cursor:pointer}
+#mobile-controls button:active{background:#555}
+@media(max-width:800px),(pointer:coarse){#mobile-controls{display:grid;grid-template-columns:60px 60px 60px;grid-template-rows:60px 60px}#controls{display:none}}
+</style>
+</head>
+<body>
+<div id="header">
+<div>Score: <span id="score">0</span></div>
+<div>Lives: <span id="lives">3</span></div>
+<div>Level: <span id="level">1</span></div>
+<div>Enemies: <span id="enemies-left">0</span></div>
+</div>
+<div style="position:relative;display:inline-block">
+<canvas id="game" width="780" height="580"></canvas>
+<div id="overlay" class="active">
+<h1>Tank Battle</h1>
+<p>WASD / Arrow Keys to move | Space to fire</p>
+<p>Destroy all enemy tanks!</p>
+<button id="start-btn">Start Game</button>
+</div></div>
+<div id="controls">WASD / Arrows to move | Space to fire | P to pause</div>
+<div id="mobile-controls">
+<div></div><button id="btn-up">UP</button><div></div>
+<button id="btn-left">LEFT</button><button id="btn-fire">FIRE</button><button id="btn-right">RIGHT</button>
+<div></div><button id="btn-down">DOWN</button><div></div>
+</div>
+<script>
+var TILE=20,COLS=39,ROWS=29,W=COLS*TILE,H=ROWS*TILE;
+var DIR={UP:0,RIGHT:1,DOWN:2,LEFT:3};
+var DV=[[0,-1],[1,0],[0,1],[-1,0]];
+var P_SPEED=2,B_SPEED=5,E_BASE_SPD=1,E_B_SPD=3;
+var canvas=document.getElementById("game");
+var ctx=canvas.getContext("2d");
+var overlay=document.getElementById("overlay");
+var scoreEl=document.getElementById("score");
+var livesEl=document.getElementById("lives");
+var levelEl=document.getElementById("level");
+var enemiesLeftEl=document.getElementById("enemies-left");
+var T={EMPTY:0,BRICK:1,STEEL:2,WATER:3,TREES:4,BASE:9};
+
+function genMap(lv){
+  var m=[];
+  for(var r=0;r<ROWS;r++){m[r]=[];for(var c=0;c<COLS;c++)m[r][c]=0;}
+  for(var c=0;c<COLS;c++){m[0][c]=1;m[ROWS-1][c]=1;}
+  for(var r=0;r<ROWS;r++){m[r][0]=1;m[r][COLS-1]=1;}
+  m[1][0]=0;m[1][1]=0;m[1][2]=0;
+  m[1][COLS-3]=0;m[1][COLS-2]=0;m[1][COLS-1]=0;
+  var bc=COLS/2|0,br=ROWS-3;
+  m[br][bc-1]=0;m[br][bc]=0;m[br][bc+1]=0;
+  var bcr=ROWS-2;
+  for(var dr=-1;dr<=1;dr++)for(var dc=-1;dc<=1;dc++){
+    if(dr===0&&dc===0)m[bcr][bc+dc]=9;
+    else if(dr===-1)m[bcr+dr][bc+dc]=1;
+    else m[bcr+dr][bc+dc]=0;
+  }
+  var nb=40+lv*5,ns=5+lv*2,nw=3+lv,nt=10+lv*2;
+  for(var i=0;i<nb;i++)place(m,1);
+  for(var i=0;i<ns;i++)place(m,2);
+  for(var i=0;i<nw;i++)place(m,3);
+  for(var i=0;i<nt;i++)place(m,4);
+  return m;
+}
+
+function place(m,type){
+  for(var a=0;a<100;a++){
+    var w=2+Math.random()*3|0,h=2+Math.random()*3|0;
+    var r=3+Math.random()*23|0,c=4+Math.random()*(COLS-6-w)|0;
+    if(c<0||c+w>COLS-2||r+h>ROWS-1)continue;
+    var ok=true;
+    for(var dr=0;dr<h&&ok;dr++)for(var dc=0;dc<w&&ok;dc++)if(m[r+dr][c+dc]!==0)ok=false;
+    if(ok){for(var dr=0;dr<h;dr++)for(var dc=0;dc<w;dc++)m[r+dr][c+dc]=type;return;}
+  }
+}
+class Tank{
+  constructor(x,y,dir,spd){this.x=x;this.y=y;this.dir=dir;this.speed=spd;this.w=TILE*2-4;this.h=TILE*2-4;this.alive=true;this.cd=0;this.fr=20;this.ft=0;this.isPlayer=false;this.scoreVal=100;}
+  get cx(){return this.x+this.w/2;}
+  get cy(){return this.y+this.h/2;}
+  move(m,obs){
+    var dx=DV[this.dir][0]*this.speed,dy=DV[this.dir][1]*this.speed;
+    var nx=this.x+dx,ny=this.y+dy;
+    if(!this.coll(nx,ny,m,obs)){this.x=nx;this.y=ny;}
+  }
+  coll(nx,ny,m,obs){
+    var x1=nx/TILE|0,y1=ny/TILE|0,x2=(nx+this.w-1)/TILE|0,y2=(ny+this.h-1)/TILE|0;
+    for(var r=y1;r<=y2;r++)for(var c=x1;c<=x2;c++){
+      if(r<0||r>=ROWS||c<0||c>=COLS)return true;
+      var t=m[r][c];if(t===1||t===2||t===3||t===9)return true;
+    }
+    for(var i=0;i<obs.length;i++){var o=obs[i];if(o===this)continue;if(nx<o.x+o.w&&nx+this.w>o.x&&ny<o.y+o.h&&ny+this.h>o.y)return true;}
+    return false;
+  }
+  canFire(){return this.cd<=0;}
+  fire(){
+    if(!this.canFire())return null;
+    this.cd=this.fr;
+    var bx=this.cx+DV[this.dir][0]*(this.w/2+2),by=this.cy+DV[this.dir][1]*(this.h/2+2);
+    return new Bullet(bx,by,this.dir,this);
+  }
+  updCd(){if(this.cd>0)this.cd--;}
+  draw(ctx){
+    if(!this.alive)return;
+    ctx.save();ctx.translate(this.cx,this.cy);ctx.rotate(this.dir*Math.PI/2);
+    var hw=this.w/2,hh=this.h/2;
+    ctx.fillStyle=this.isPlayer?"#4a4":"#c44";
+    ctx.fillRect(-hw,-hh,this.w,this.h);
+    ctx.fillStyle=this.isPlayer?"#383":"#a33";
+    ctx.fillRect(-hw-3,-hh,4,this.h);ctx.fillRect(hw-1,-hh,4,this.h);
+    ctx.fillStyle=this.isPlayer?"#5c5":"#d55";
+    ctx.fillRect(-hw/2,-hh/2,this.w/2,this.h/2);
+    ctx.fillStyle="#fff";ctx.fillRect(-2,-hh-6,4,hh+2);
+    if(this.ft>0){ctx.fillStyle="rgba(255,255,0,"+this.ft/10+")";ctx.fillRect(-hw-3,-hh,this.w+6,this.h);this.ft--;}
+    ctx.restore();
+  }
+}
+class Bullet{
+  constructor(x,y,dir,owner){this.x=x;this.y=y;this.dir=dir;this.owner=owner;this.speed=owner.isPlayer?B_SPEED:E_B_SPD;this.w=4;this.h=4;this.alive=true;}
+  update(m,tanks){
+    this.x+=DV[this.dir][0]*this.speed;this.y+=DV[this.dir][1]*this.speed;
+    var cx=this.x+this.w/2,cy=this.y+this.h/2;
+    var r=cy/TILE|0,c=cx/TILE|0;
+    if(r>=0&&r<ROWS&&c>=0&&c<COLS){
+      var t=m[r][c];
+      if(t===1){this.alive=false;m[r][c]=0;return"brick";}
+      if(t===2){this.alive=false;return"steel";}
+      if(t===9){this.alive=false;m[r][c]=0;return"base";}
+    }
+    for(var i=0;i<tanks.length;i++){
+      var tk=tanks[i];
+      if(!tk.alive||tk===this.owner)continue;
+      if(this.x<tk.x+tk.w&&this.x+this.w>tk.x&&this.y<tk.y+tk.h&&this.y+this.h>tk.y){
+        this.alive=false;tk.alive=false;tk.ft=10;return"tank";
+      }
+    }
+    if(this.owner.isPlayer){
+      for(var i=0;i<bullets.length;i++){
+        var b=bullets[i];
+        if(b!==this&&b.alive&&!b.owner.isPlayer){
+          if(Math.abs(this.x-b.x)<8&&Math.abs(this.y-b.y)<8){this.alive=false;b.alive=false;return"bullet";}
+        }
+      }
+    }
+    if(this.x<0||this.x>W||this.y<0||this.y>H){this.alive=false;return"out";}
+    return null;
+  }
+  draw(ctx){
+    ctx.fillStyle=this.owner.isPlayer?"#ff0":"#f80";
+    ctx.beginPath();ctx.arc(this.x+this.w/2,this.y+this.h/2,3,0,Math.PI*2);ctx.fill();
+  }
+}
+class Enemy extends Tank{
+  constructor(x,y,type){
+    super(x,y,DIR.DOWN,E_BASE_SPD+Math.random()*0.5);
+    this.type=type;this.fr=30+Math.random()*30|0;
+    this.cdT=0;this.maxCd=60+Math.random()*120|0;
+    this.scoreVal=100;
+    if(type===1){this.speed+=0.5;this.scoreVal=200;}
+    if(type===2){this.speed+=1;this.fr=20;this.scoreVal=300;}
+    if(type===3){this.speed+=1.5;this.scoreVal=500;}
+  }
+  updateAI(m,tanks){
+    this.updCd();this.cdT++;
+    if(this.cdT>=this.maxCd||Math.random()<0.01){
+      this.dir=Math.random()*4|0;this.cdT=0;this.maxCd=60+Math.random()*120|0;
+    }
+    if(Math.random()<0.03){
+      var bc=COLS/2|0,br=ROWS-2;
+      if(this.cx<bc*TILE)this.dir=DIR.RIGHT;
+      else if(this.cx>bc*TILE)this.dir=DIR.LEFT;
+      else this.dir=DIR.DOWN;
+      this.cdT=0;
+    }
+    this.move(m,tanks);
+    if(Math.random()<0.03&&this.canFire()){var b=this.fire();if(b)bullets.push(b);}
+  }
+}
+
+var map,player,enemies=[],bullets=[],particles=[];
+var score=0,lives=3,level=1,enemyCount=0,spawnT=0,spawnI=120;
+var gameRunning=false,paused=false,gameOver=false;
+var keys={};
+var animFrame;
+
+function initGame(){score=0;lives=3;level=1;initLevel();}
+
+function initLevel(){
+  map=genMap(level);
+  player=new Tank((COLS/2|0-1)*TILE,(ROWS-3)*TILE,DIR.UP,P_SPEED);
+  player.isPlayer=true;
+  enemies=[];bullets=[];particles=[];
+  enemyCount=6+level*2;spawnT=0;spawnI=120;
+  gameRunning=true;paused=false;gameOver=false;
+  updateUI();
+}
+function spawnEnemy(){
+  if(enemies.filter(function(e){return e.alive;}).length>=4||enemyCount<=0)return;
+  var side=Math.random()<0.5?0:COLS-3;
+  var x=side*TILE,y=TILE;
+  var type=Math.random()<0.3+level*0.05?(Math.random()*3|0)+1:0;
+  var e=new Enemy(x,y,type);e.isPlayer=false;
+  var blocked=false;
+  var allTanks=[player].concat(enemies);
+  for(var i=0;i<allTanks.length;i++){
+    var t=allTanks[i];
+    if(!t.alive)continue;
+    if(Math.abs(e.x-t.x)<TILE*3&&Math.abs(e.y-t.y)<TILE*3){blocked=true;break;}
+  }
+  if(!blocked){enemies.push(e);enemyCount--;}
+}
+
+function addP(x,y,col,n){
+  for(var i=0;i<n;i++)particles.push({x:x,y:y,vx:(Math.random()-0.5)*6,vy:(Math.random()-0.5)*6,life:20+Math.random()*20|0,color:col,size:2+Math.random()*3});
+}
+
+function update(){
+  if(!gameRunning||paused||gameOver)return;
+  var mv=false;
+  if(keys["ArrowUp"]||keys["KeyW"]){player.dir=DIR.UP;mv=true;}
+  else if(keys["ArrowDown"]||keys["KeyS"]){player.dir=DIR.DOWN;mv=true;}
+  else if(keys["ArrowLeft"]||keys["KeyA"]){player.dir=DIR.LEFT;mv=true;}
+  else if(keys["ArrowRight"]||keys["KeyD"]){player.dir=DIR.RIGHT;mv=true;}
+  if(mv)player.move(map,enemies);
+  player.updCd();
+  if(keys["Space"]&&player.canFire()){var b=player.fire();if(b)bullets.push(b);}
+  spawnT++;
+  if(spawnT>=spawnI){spawnT=0;spawnEnemy();}
+  for(var i=0;i<enemies.length;i++){var e=enemies[i];if(e.alive)e.updateAI(map,[player].concat(enemies));}
+  for(var i=0;i<bullets.length;i++){
+    var b=bullets[i];
+    if(!b.alive)continue;
+    var res=b.update(map,[player].concat(enemies));
+    if(!b.alive){
+      if(res==="tank"){addP(b.owner.cx,b.owner.cy,"#f80",15);}
+      if(res==="base"){gameOver=true;addP(b.x,b.y,"#f00",30);}
+      if(res==="brick"||res==="steel"){addP(b.x,b.y,res==="brick"?"#a64":"#ccc",5);}
+    }
+  }
+  var eb=bullets.filter(function(b){return !b.owner.isPlayer&&b.alive;});
+  var pb=bullets.filter(function(b){return b.owner.isPlayer&&b.alive;});
+  for(var i=0;i<eb.length;i++)for(var j=0;j<pb.length;j++){
+    var e=eb[i],p=pb[j];
+    if(e.alive&&p.alive&&Math.abs(e.x-p.x)<8&&Math.abs(e.y-p.y)<8){
+      e.alive=false;p.alive=false;addP((e.x+p.x)/2,(e.y+p.y)/2,"#ff0",8);
+    }
+  }
+  bullets=bullets.filter(function(b){return b.alive;});
+  enemies=enemies.filter(function(e){return e.alive;});
+  if(!player.alive){
+    lives--;addP(player.cx,player.cy,"#4a4",20);
+    if(lives<=0){gameOver=true;}
+    else{player=new Tank((COLS/2|0-1)*TILE,(ROWS-3)*TILE,DIR.UP,P_SPEED);player.isPlayer=true;player.ft=60;}
+  }
+  for(var i=0;i<particles.length;i++){var p=particles[i];p.x+=p.vx;p.y+=p.vy;p.vx*=0.95;p.vy*=0.95;p.life--;}
+  particles=particles.filter(function(p){return p.life>0;});
+  if(enemyCount<=0&&enemies.filter(function(e){return e.alive;}).length===0){level++;initLevel();}
+  updateUI();
+}
+function updateUI(){scoreEl.textContent=score;livesEl.textContent=lives;levelEl.textContent=level;enemiesLeftEl.textContent=enemyCount+enemies.filter(function(e){return e.alive;}).length;}
+
+function drawMap(){
+  for(var r=0;r<ROWS;r++)for(var c=0;c<COLS;c++){
+    var t=map[r][c],x=c*TILE,y=r*TILE;
+    if(t===1){
+      ctx.fillStyle="#a52";ctx.fillRect(x,y,TILE,TILE);
+      ctx.fillStyle="#841";ctx.fillRect(x,y+TILE/2-1,TILE,2);
+      ctx.fillRect(x+TILE/2-1,y,2,TILE/2);ctx.fillRect(x+TILE/4-1,y+TILE/2,2,TILE/2);
+    }else if(t===2){
+      ctx.fillStyle="#888";ctx.fillRect(x,y,TILE,TILE);
+      ctx.fillStyle="#aaa";ctx.fillRect(x+2,y+2,TILE-4,TILE-4);
+      ctx.fillStyle="#999";ctx.fillRect(x+4,y+4,TILE/2-4,TILE/2-4);
+    }else if(t===3){
+      ctx.fillStyle="#22a";ctx.fillRect(x,y,TILE,TILE);
+      ctx.fillStyle="#33c";var w=Math.sin(Date.now()/300+c+r)*2;ctx.fillRect(x,y+TILE/2+w,TILE,3);
+    }else if(t===4){
+      ctx.fillStyle="#2a2";
+      for(var i=0;i<4;i++){ctx.beginPath();ctx.arc(x+5+(i%2)*8,y+5+(i>1?8:0),5,0,Math.PI*2);ctx.fill();}
+    }else if(t===9){
+      ctx.fillStyle="#444";ctx.fillRect(x,y,TILE,TILE);
+      ctx.fillStyle="#ff0";ctx.beginPath();ctx.moveTo(x+TILE/2,y+2);ctx.lineTo(x+TILE-2,y+TILE-2);ctx.lineTo(x+2,y+TILE-2);ctx.closePath();ctx.fill();
+    }
+  }
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);drawMap();
+  if(player)player.draw(ctx);
+  for(var i=0;i<enemies.length;i++)enemies[i].draw(ctx);
+  for(var i=0;i<bullets.length;i++)bullets[i].draw(ctx);
+  for(var i=0;i<particles.length;i++){var p=particles[i];ctx.globalAlpha=p.life/40;ctx.fillStyle=p.color;ctx.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size);}
+  ctx.globalAlpha=1;
+  if(paused){ctx.fillStyle="rgba(0,0,0,0.5)";ctx.fillRect(0,0,W,H);ctx.fillStyle="#ff0";ctx.font="36px Courier New";ctx.textAlign="center";ctx.fillText("PAUSED",W/2,H/2);ctx.textAlign="left";}
+}
+
+function gameLoop(){update();draw();animFrame=requestAnimationFrame(gameLoop);}
+
+document.addEventListener("keydown",function(e){keys[e.code]=true;if(e.code==="KeyP"&&gameRunning)paused=!paused;if(["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].indexOf(e.code)>=0)e.preventDefault();});
+document.addEventListener("keyup",function(e){keys[e.code]=false;});
+
+function mobBtn(id,code){
+  var b=document.getElementById(id);if(!b)return;
+  b.addEventListener("touchstart",function(e){e.preventDefault();keys[code]=true;});
+  b.addEventListener("touchend",function(e){e.preventDefault();keys[code]=false;});
+  b.addEventListener("mousedown",function(e){keys[code]=true;});
+  b.addEventListener("mouseup",function(e){keys[code]=false;});
+}
+mobBtn("btn-up","ArrowUp");mobBtn("btn-down","ArrowDown");
+mobBtn("btn-left","ArrowLeft");mobBtn("btn-right","ArrowRight");
+mobBtn("btn-fire","Space");
+
+function startGame(){
+  overlay.classList.remove("active");overlay.innerHTML="";
+  cancelAnimationFrame(animFrame);initGame();gameLoop();
+}
+document.getElementById("start-btn").addEventListener("click",startGame);
+ctx.fillStyle="#000";ctx.fillRect(0,0,W,H);
+
+</script>
+</body>
+</html>
